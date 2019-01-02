@@ -1,0 +1,19 @@
+{
+  "name": "iot-hub-node-raspberrypiface-client-app",
+  "version": "1.0.0",
+  "description": "Client application for Raspberry Pi with a PiFace add-on board, integrated with Azure IoT hub",
+  "main": "index.js",
+  "scripts": {
+    "test": "node_modules/.bin/eslint *.js"
+  },
+  "dependencies": {
+    "azure-iot-device": "^1.8.3",
+    "azure-iot-device-mqtt": "^1.8.3",
+    "keypress": "^0.2.0",
+    "piface": "^2.0.10"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^3.17.1"
+  }
+}
