@@ -1,6 +1,5 @@
 {
   "interval": 2000,
-  "deviceId": "pifacerab",
   "credentialPath": "~/.iot-hub",
   "reportInputsToDeviceTwin" : false,
   "infoConfigurationSync" : false,
