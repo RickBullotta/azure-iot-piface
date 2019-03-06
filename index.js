@@ -397,7 +397,12 @@ function initClient(connectionStringParam, credentialPath) {
             console.log("Input " + input + " changed to " + inputs[input]);
 
             changedInputs["button" + input] = inputs[input];
-            changedInputs["button" + input + "pressed"] = inputs[input];
+
+            if(inputs[input] > 0)
+              changedInputs["button" + input + "pressed"] = inputs[input].toString();
+            else
+              changedInputs["button" + input + "released"] = inputs[input].toString();
+
             twinUpdate["inputs"]["input" + input] = inputs[input];
           }
         }
