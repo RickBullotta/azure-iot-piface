@@ -4,8 +4,8 @@
   "description": "Client application for Raspberry Pi with a PiFace add-on board, integrated with Azure IoT hub",
   "main": "index.js",
   "dependencies": {
-    "azure-iot-device": "^1.9.3",
-    "azure-iot-device-mqtt": "^1.9.3",
+    "azure-iot-device": "^1.9.4",
+    "azure-iot-device-mqtt": "^1.9.4",
     "keypress": "^0.2.0",
     "piface": "^2.0.10"
   },
