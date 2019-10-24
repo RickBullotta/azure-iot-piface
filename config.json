@@ -1,13 +1,12 @@
 {
-  "interval": 2000,
-  "credentialPath": "~/.iot-hub",
+  "interval": 100,
   "reportInputsToDeviceTwin" : false,
   "infoConfigurationSync" : false,
   "debugConfigurationSync" : false,
   "infoMethods" : true,
   "debugMethods" : false,
   "infoOutboundMessages" : false,
-  "debugOutboundMessages" : false,
+  "debugOutboundMessages" : true,
   "infoInboundMessages" : false,
   "debugInboundMessages" : false
 }

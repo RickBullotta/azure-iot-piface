@@ -3,13 +3,10 @@
 */
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-
 var piface = {};
 
 try {
-  piface = require('piface');
+  piface = require('piface-node-12');
 }
 catch(e) {
   piface.init = function() {};
@@ -25,6 +22,16 @@ const Client = require('azure-iot-device').Client;
 const ConnectionString = require('azure-iot-device').ConnectionString;
 const Message = require('azure-iot-device').Message;
 const Protocol = require('azure-iot-device-mqtt').Mqtt;
+
+// DPS and connection stuff
+
+const iotHubTransport = require('azure-iot-device-mqtt').Mqtt;
+
+var ProvisioningTransport = require('azure-iot-provisioning-device-mqtt').Mqtt;
+var SymmetricKeySecurityClient = require('azure-iot-security-symmetric-key').SymmetricKeySecurityClient;
+var ProvisioningDeviceClient = require('azure-iot-provisioning-device').ProvisioningDeviceClient;
+
+var provisioningHost = 'global.azure-devices-provisioning.net';
 
 const keypress = require('keypress');
 
@@ -43,33 +50,25 @@ process.stdin.setRawMode(true);
 process.stdin.resume();
 
 const INPUT_COUNT = 8;
-const BASE_INPUT = 0;
+const BASE_INPUT = 1;
+const BUTTON_COUNT = 4;
 
 const OUTPUT_COUNT = 8;
-const BASE_OUTPUT = 0;
+const BASE_OUTPUT = 1;
 
-var messageId = 0;
-var deviceId;
-var client
+var client;
 var config;
+var connect;
 
 var sendingMessage = true;
 
-var lastInputs = [0, 0, 0, 0, 0, 0, 0, 0];
 var fauxInputs = [0, 0, 0, 0, 0, 0, 0, 0];
+var lastInputs = [undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined];
 
-function updateInputStatus(inputs) {
+function updateInputStatus(telemetry) {
   if (!sendingMessage) { return; }
 
-  var content = {
-    messageId: ++messageId,
-    deviceId: deviceId
-  };
-
-  var rawMessage = JSON.stringify(inputs);
-
-  console.log("Sending:");
-  console.log(rawMessage);
+  var rawMessage = JSON.stringify(telemetry);
 
   var message = new Message(rawMessage);
 
@@ -83,8 +82,6 @@ function updateInputStatus(inputs) {
     if (err) {
       console.error('Failed to send message to Azure IoT Hub');
     } else {
-      pulseOutput(3, 100);
-
       if (config.infoOutboundMessages)
         console.info('Message sent to Azure IoT Hub');
     }
@@ -100,7 +97,7 @@ function onSetOutput(request, response) {
   if (config.infoMethods)
     console.info("SetOutput : pin = " + pin + " state " + state);
 
-  if (pin !== undefined && pin >= BASE_OUTPUT && pin < OUTPUT_COUNT) {
+  if (pin !== undefined && pin >= BASE_OUTPUT && pin <= OUTPUT_COUNT) {
     var digitalState = 1;
 
     if (state == false || state == 0)
@@ -115,7 +112,7 @@ function onSetOutput(request, response) {
     });
   }
   else {
-    response.send(400, 'Invalid pin : must be between 0 and 7', function (err) {
+    response.send(400, 'Invalid pin : must be between 1 and 8', function (err) {
       if (err) {
         console.error('Unable to respond to SetOutput method request');
       }
@@ -128,46 +125,13 @@ function readAllInputs() {
 
   var input;
 
-  for (input = BASE_INPUT; input < INPUT_COUNT; input++) {
-    var state = piface.digital_read(input);
+  for (input = BASE_INPUT; input <= INPUT_COUNT; input++) {
+    var state = piface.digital_read(input-1);
 
-    inputs[input] = state;
+    inputs[input-1] = state;
   }
 
   return inputs;
-}
-
-function onReadInput(request, response) {
-  sendingMessage = true;
-
-  var pin = request.payload.pin;
-
-  if (config.infoMethods)
-    console.info("ReadInput : pin = " + pin);
-
-  if (pin !== undefined && pin >= BASE_INPUT && pin < INPUT_COUNT) {
-    var state = piface.digital_read(pin);
-
-    var payload = { "state": state };
-
-    var rawMessage = JSON.stringify(payload);
-
-    if (config.debugMethods)
-      console.debug(rawMessage);
-
-    response.send(200, rawMessage, function (err) {
-      if (err) {
-        console.error('Unable to respond to ReadInput method request');
-      }
-    });
-  }
-  else {
-    response.send(400, 'Invalid pin : must be between 0 and 7', function (err) {
-      if (err) {
-        console.error('Unable to respond to ReadInput method request');
-      }
-    });
-  }
 }
 
 function onPulseOutput(request, response) {
@@ -179,7 +143,7 @@ function onPulseOutput(request, response) {
   if (config.infoMethods)
     console.info("PulseOutput : pin = " + pin + " duration " + duration);
 
-  if (pin !== undefined && pin >= BASE_OUTPUT && pin < OUTPUT_COUNT) {
+  if (pin !== undefined && pin >= BASE_OUTPUT && pin <= OUTPUT_COUNT) {
     pulseOutput(pin, duration);
 
     response.send(200, 'Successfully pulsed output ' + pin, function (err) {
@@ -189,7 +153,7 @@ function onPulseOutput(request, response) {
     });
   }
   else {
-    response.send(400, 'Invalid pin : must be between 0 and 7', function (err) {
+    response.send(400, 'Invalid pin : must be between 1 and 8', function (err) {
       if (err) {
         console.error('Unable to respond to PulseOutput method request');
       }
@@ -197,7 +161,7 @@ function onPulseOutput(request, response) {
   }
 }
 
-function onBlinkLED(request, response) {
+function onBlinkOutput(request, response) {
   sendingMessage = true;
 
   var pin = request.payload.pin;
@@ -205,21 +169,21 @@ function onBlinkLED(request, response) {
   var count = request.payload.count;
 
   if (config.infoMethods)
-    console.info("BlinkLED : pin = " + pin + " duration " + duration + " count " + count);
+    console.info("BlinkOutput : pin = " + pin + " duration " + duration + " count " + count);
 
-  if (pin !== undefined && pin >= BASE_OUTPUT && pin < OUTPUT_COUNT) {
-    blinkLED(pin, duration, count);
+  if (pin !== undefined && pin >= BASE_OUTPUT && pin <= OUTPUT_COUNT) {
+    blinkOutput(pin, duration, count);
 
-    response.send(200, 'Successfully blinked LED ' + pin, function (err) {
+    response.send(200, 'Successfully blinked Output ' + pin, function (err) {
       if (err) {
-        console.error('Unable to respond to BlinkLED method request');
+        console.error('Unable to respond to BlinkOutput method request');
       }
     });
   }
   else {
-    response.send(400, 'Invalid pin : must be between 0 and 7', function (err) {
+    response.send(400, 'Invalid pin : must be between 1 and 8', function (err) {
       if (err) {
-        console.error('Unable to respond to BlinkLED method request');
+        console.error('Unable to respond to BlinkOutput method request');
       }
     });
   }
@@ -264,7 +228,7 @@ function onReceiveMessage(msg) {
 }
 
 
-function blinkLED(pin, duration, count) {
+function blinkOutput(pin, duration, count) {
 
   if (duration == undefined || isNaN(duration) || duration < 0 || duration > 60000)
     duration = 500;
@@ -297,138 +261,138 @@ function pulseOutput(pin, duration) {
 }
 
 function setOutput(pin, state) {
-  piface.digital_write(pin, state);
+  piface.digital_write(pin-1, state);
 }
 
-function initClient(connectionStringParam, credentialPath) {
-  var connectionString = ConnectionString.parse(connectionStringParam);
-  deviceId = connectionString.DeviceId;
-
-  // fromConnectionString must specify a transport constructor, coming from any transport package.
-  client = Client.fromConnectionString(connectionStringParam, Protocol);
-
-  // Configure the client to use X509 authentication if required by the connection string.
-  if (connectionString.x509) {
-    // Read X.509 certificate and private key.
-    // These files should be in the current folder and use the following naming convention:
-    // [device name]-cert.pem and [device name]-key.pem, example: myraspberrypi-cert.pem
-    var connectionOptions = {
-      cert: fs.readFileSync(path.join(credentialPath, deviceId + '-cert.pem')).toString(),
-      key: fs.readFileSync(path.join(credentialPath, deviceId + '-key.pem')).toString()
-    };
-
-    client.setOptions(connectionOptions);
-
-    console.log('[Device] Using X.509 client certificate authentication');
-  }
-  return client;
-}
-
-(function (connectionString) {
-  // read in configuration in config.json
-  try {
-    config = require('./config.json');
-  } catch (err) {
-    console.error('Failed to load config.json: ' + err.message);
-    return;
-  }
-
-  // set up wiring
-  piface.init();
-
-  // create a client
-  // read out the connectionString from process environment
-  connectionString = connectionString || process.env['AzureIoTHubDeviceConnectionString'];
-  client = initClient(connectionString, config);
-
-  client.open((err) => {
-    if (err) {
-      console.error('[IoT hub Client] Connect error: ' + err.message);
-      return;
-    }
-    else {
-      console.log('[IoT hub Client] Connected Successfully');
-    }
-
-    // set C2D and device method callback
+function initBindings() {
+    // set C2D callback
     client.onDeviceMethod('start', onStart);
     client.onDeviceMethod('stop', onStop);
 
-    client.onDeviceMethod('SetOutput', onSetOutput);
-    client.onDeviceMethod('PulseOutput', onPulseOutput);
-    client.onDeviceMethod('BlinkLED', onBlinkLED);
-    client.onDeviceMethod('ReadInput', onReadInput);
-
     client.on('message', onReceiveMessage);
 
+    // Init device methods
+
+    client.onDeviceMethod('SetOutput', onSetOutput);
+    client.onDeviceMethod('PulseOutput', onPulseOutput);
+    client.onDeviceMethod('BlinkOutput', onBlinkOutput);
+}
+
+function initLogic() {
+    // Setup input polling
+
     setInterval(() => {
-      if (config.infoConfigurationSync)
-        console.info("Syncing Device Twin...");
 
-      client.getTwin((err, twin) => {
-        if (err) {
-          console.error("Get twin message error : " + err);
-          return;
-        }
-
-        if (config.debugConfigurationSync) {
-          console.debug("Desired:");
-          console.debug(JSON.stringify(twin.properties.desired));
-          console.debug("Reported:");
-          console.debug(JSON.stringify(twin.properties.reported));
-        }
+        var changed = false;
 
         var inputs = readAllInputs();
 
-        var hadChange = false;
-
-        var twinUpdate = {};
-
-        twinUpdate["inputs"] = {};
+        var telemetry = {};
 
         var input;
 
-        var changedInputs = {};
-
-        for (input = BASE_INPUT; input < INPUT_COUNT; input++) {
-          if (inputs[input] != lastInputs[input]) {
-            hadChange = true;
-
-            console.log("Input " + input + " changed to " + inputs[input]);
-
-            changedInputs["button" + input] = inputs[input];
-
-            if(inputs[input] > 0)
-              changedInputs["button" + input + "pressed"] = inputs[input].toString();
-            else
-              changedInputs["button" + input + "released"] = inputs[input].toString();
-
-            twinUpdate["inputs"]["input" + input] = inputs[input];
+        for (input = BASE_INPUT; input <= INPUT_COUNT; input++) {
+          if(lastInputs[input-1] == undefined) {
+              telemetry["input" + input] = inputs[input-1].toString();
+              lastInputs[input-1] = inputs[input-1];
+              changed = true;
           }
-        }
+          else {
+              if(lastInputs[input-1] !== inputs[input-1]) {
+                  lastInputs[input-1] = inputs[input-1];
 
-        if (hadChange) {
-          // Report current state of the inputs as a device -> cloud message
+                  changed = true;
 
-          updateInputStatus(changedInputs);
+                  telemetry["input" + input] = inputs[input-1].toString();
 
-          // Update the device twin if configured to do so
-
-          if (config.reportInputsToDeviceTwin) {
-            twin.properties.reported.update(twinUpdate, function (err) {
-              if (err) {
-                console.error("Unable To Update Device Twin : " + err)
+                  if(input <= BUTTON_COUNT) {
+                      if(inputs[input-1] === 0) {
+                          telemetry["button" + input + "released"] = "Released";
+                      }
+                      else {
+                          telemetry["button" + input + "pressed"] = "Pressed";
+                      }
+                  }
               }
-              console.log("Device Twin Updated");
-            });
           }
-
         }
 
-        lastInputs = inputs;
+        if(changed) {
+            updateInputStatus(telemetry);
+        }
+      }, config.interval);
+}
 
-      });
-    }, config.interval);
 
-  });
-})(process.argv[2]);
+function initDevice() {
+    // set up wiring
+
+    piface.init();
+}
+
+function initClient() {
+
+	// Start the device (connect it to Azure IoT Central).
+	try {
+		var provisioningSecurityClient = new SymmetricKeySecurityClient(connect.deviceId, connect.symmetricKey);
+		var provisioningClient = ProvisioningDeviceClient.create(provisioningHost, connect.idScope, new ProvisioningTransport(), provisioningSecurityClient);
+
+		provisioningClient.register((err, result) => {
+			if (err) {
+				console.log('error registering device: ' + err);
+			} else {
+				console.log('registration succeeded');
+				console.log('assigned hub=' + result.assignedHub);
+				console.log('deviceId=' + result.deviceId);
+
+				var connectionString = 'HostName=' + result.assignedHub + ';DeviceId=' + result.deviceId + ';SharedAccessKey=' + connect.symmetricKey;
+				client = Client.fromConnectionString(connectionString, iotHubTransport);
+			
+				client.open((err) => {
+					if (err) {
+						console.error('[IoT hub Client] Connect error: ' + err.message);
+						return;
+					}
+					else {
+						console.log('[IoT hub Client] Connected Successfully');
+					}
+			
+					initBindings();
+
+					initLogic();
+				});
+			}
+		});
+	}
+	catch(err) {
+		console.log(err);
+	}
+}
+
+// Read in configuration from config.json
+
+try {
+	config = require('./config.json');
+} catch (err) {
+	config = {};
+	console.error('Failed to load config.json: ' + err.message);
+	return;
+}
+
+// Read in connection details from connect.json
+
+try {
+	connect = require('./connect.json');
+} catch (err) {
+	connect = {};
+	console.error('Failed to load connect.json: ' + err.message);
+	return;
+}
+
+// Perform any device initialization
+
+initDevice();
+
+// Initialize Azure IoT Client
+
+initClient();
