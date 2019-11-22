@@ -238,14 +238,21 @@ function blinkOutput(pin, duration, count) {
 
   var currentCount = 0;
 
-  var intervalID = setInterval(function () {
-    pulseOutput(pin, duration);
+  // Always run once
+  pulseOutput(pin, duration);
 
-    ++currentCount;
+  ++currentCount;
 
-    if (currentCount >= count)
-      clearInterval(intervalID);
-  }, 2 * duration);
+  if (currentCount < count) {
+    var intervalID = setInterval(function () {
+      pulseOutput(pin, duration);
+  
+      ++currentCount;
+  
+      if (currentCount >= count)
+        clearInterval(intervalID);
+    }, 2 * duration);
+  }
 }
 
 
